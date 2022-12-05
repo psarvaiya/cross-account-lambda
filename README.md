@@ -14,6 +14,9 @@
 
 ![image](https://user-images.githubusercontent.com/112694225/205645529-5e7d2644-7e4d-48b9-9bcf-f0bfc52e0af9.png)
 
+----------------------------
+
+
 ## Source/Central Account
 
 ### 1. Provide DestinationLambdaARN
