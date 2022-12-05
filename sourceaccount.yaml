@@ -1,0 +1,79 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+
+Parameters: 
+  CentralAccountLambdaName:
+    Type: String
+    Default: 'YourLambdaName'
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: ' Should contain alphabets and numbers'
+
+  DestinationRoleArn:
+    Type: String
+    Default: 'your-destination-role-arn'
+
+  DestinationLambdaArn:
+    Type: String
+    Default: 'your-destination-lambda-arn'
+
+Resources:
+  SourceLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Ref CentralAccountLambdaName
+      Handler: index.handler
+      Role: !GetAtt SourceIAMRole.Arn
+      Code:
+        ZipFile: !Sub |
+          exports.handler = async (event) => {
+              var aws = require('aws-sdk');
+              var sts = new aws.STS({ region: process.env.REGION });
+              var stsParams = {
+                RoleArn: "${DestinationRoleArn}",
+                DurationSeconds: 3600,
+                RoleSessionName: "cross-account-lambda-session" // any string
+              };
+              const stsResults = await sts.assumeRole(stsParams).promise();
+              
+              var lambda = new aws.Lambda({
+                region: process.env.REGION, 
+                accessKeyId: stsResults.Credentials.AccessKeyId, 
+                secretAccessKey:stsResults.Credentials.SecretAccessKey, 
+                sessionToken: stsResults.Credentials.SessionToken
+              });
+              const result = await lambda.invoke({
+                FunctionName: '${DestinationLambdaArn}',
+                InvocationType: 'RequestResponse',
+                Payload: "{}" // pass params
+              }).promise();
+              const response = {
+                  statusCode: 200,
+                  body: JSON.stringify(result)
+              };
+              return response;
+          };
+      Timeout: 25
+      Runtime: nodejs16.x
+
+  SourceIAMRole: 
+    Type: AWS::IAM::Role
+    Properties:
+        RoleName: "source-lambda-iam-role"
+        AssumeRolePolicyDocument:
+          Version: 2012-10-17
+          Statement:
+            - Sid: ''
+              Effect: Allow
+              Principal:
+                Service:  lambda.amazonaws.com
+              Action: 'sts:AssumeRole'
+        Policies:
+          - 
+            PolicyName: "assume-destination-role-policy"
+            PolicyDocument: 
+              Version: "2012-10-17"
+              Statement: 
+                - 
+                  Effect: "Allow"
+                  Action: "sts:AssumeRole"
+                  Resource: !Join ["", [!Sub "${DestinationRoleArn}"]]
