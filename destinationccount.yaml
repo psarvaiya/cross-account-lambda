@@ -1,0 +1,102 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Parameters: 
+  DestinationLambdaName:
+    Type: String
+    Default: 'YourLambdaName'
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: ' Should contain alphabets and numbers'
+
+  CallingAccountId:
+    Type: String
+    Default: 'calling-account-id'
+    Description: 'Your central account ID'
+
+Resources:
+  DestinationLambda:
+    Type: AWS::Lambda::Function
+
+    Properties:
+      FunctionName: !Ref DestinationLambdaName
+      Handler: index.handler
+      Role: !GetAtt DestinationIAMRole.Arn
+      Code:
+        ZipFile: !Sub |
+          export const handler = async(event) => {
+              const response = {
+                  statusCode: 200,
+                  body: JSON.stringify('Greetings from another account'),
+              };
+              return response;
+          };
+      Runtime: nodejs18.x
+
+    DependsOn: DestinationIAMRole
+
+  DestinationIAMRole: 
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "destination-lambda-iam-role"
+      AssumeRolePolicyDocument:
+          Version: 2012-10-17
+          Statement:
+            - 
+              Effect: Allow
+              Principal:
+                AWS: !Sub 'arn:aws:iam::${CallingAccountId}:root'
+              Action: 'sts:AssumeRole'
+
+            - 
+              Effect: Allow
+              Principal:
+                 Service: 
+                  - 'lambda.amazonaws.com'
+              Action: 'sts:AssumeRole'
+
+  AttachCloudWatchPolicy:
+    Type: 'AWS::IAM::Policy'
+    Properties:
+        PolicyName: cloudwatch-policy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+            - 
+              Effect: Allow
+              Action:
+              - "logs:CreateLogGroup"
+              Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*"
+
+            - 
+              Effect: Allow
+              Action:
+              - 'logs:CreateLogStream'
+              - 'logs:PutLogEvents' 
+              Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${DestinationLambdaName}:*"
+        Roles: 
+        - !Ref DestinationIAMRole
+    DependsOn: DestinationLambda
+             
+  AttachSTSRoleToInvokeLambda:
+    Type: 'AWS::IAM::Policy'
+    Properties:
+         PolicyName: lambdacrossaccount-policy
+         PolicyDocument:
+           Version: 2012-10-17
+           Statement:
+           - Effect: Allow
+             Action:
+             - "lambda:InvokeFunction"
+             Resource: !GetAtt DestinationLambda.Arn
+         Roles: 
+         - !Ref DestinationIAMRole
+
+    DependsOn: DestinationLambda
+
+
+
+Outputs:
+  DestinationLambdaARN:
+    Value: !GetAtt DestinationLambda.Arn
+  
+  DestinationRoleArn:
+    Value: !GetAtt DestinationIAMRole.Arn
